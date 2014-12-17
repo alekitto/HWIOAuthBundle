@@ -63,6 +63,28 @@ class FacebookResourceOwner extends GenericOAuth2ResourceOwner
         return parent::getAuthorizationUrl($redirectUri, array_merge($extraOptions, $extraParameters));
     }
 
+    public function getRerequestUrl($redirectUri, array $scopes, array $extraParameters = array())
+    {
+        if ($this->options['csrf']) {
+            if (null === $this->state) {
+                $this->state = $this->generateNonce();
+            }
+
+            $this->storage->save($this, $this->state, 'csrf_state');
+        }
+
+        $parameters = array_merge(array(
+            'response_type' => 'code',
+            'client_id' => $this->options['client_id'],
+            'auth_type' => 'rerequest',
+            'scope' => implode(",", $scopes),
+            'state' => $this->state ? urlencode($this->state) : null,
+            'redirect_uri' => $redirectUri,
+        ), $extraParameters);
+
+        return $this->normalizeUrl($this->options['authorization_url'], $parameters);
+    }
+
     /**
      * {@inheritdoc}
      */
@@ -78,6 +100,22 @@ class FacebookResourceOwner extends GenericOAuth2ResourceOwner
         }
 
         return parent::getAccessToken($request, $this->normalizeUrl($redirectUri, $parameters), $extraParameters);
+    }
+
+    /**
+     * Get facebook permissions
+     */
+    public function getPermissions($token)
+    {
+        $response = $this->httpRequest($this->normalizeUrl($this->options['permissions_url']), null, array('Authorization: Bearer '.$token));
+        $response = $this->getResponseContent($response);
+
+        $permissions = [];
+        foreach($response['data'] as $permission_status) {
+            $permissions[ $permission_status['permission'] ] = $permission_status['status'];
+        }
+
+        return $permissions;
     }
 
     /**
@@ -106,6 +144,7 @@ class FacebookResourceOwner extends GenericOAuth2ResourceOwner
             'authorization_url' => 'https://www.facebook.com/v2.7/dialog/oauth',
             'access_token_url' => 'https://graph.facebook.com/v2.7/oauth/access_token',
             'revoke_token_url' => 'https://graph.facebook.com/v2.7/me/permissions',
+            'permissions_url' => 'https://graph.facebook.com/v2.7/me/permissions',
             'infos_url' => 'https://graph.facebook.com/v2.7/me?fields=first_name,last_name,name,email',
             'use_commas_in_scope' => true,
             'display' => null,
